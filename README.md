@@ -1,4 +1,4 @@
-# Android-16-Space 🌌
+# Android-16-Space 🌌 🚀
 Android 16 — Space is an HTML5 Canvas space exploration game with a fully interactive HUD, procedural galaxy generation, and persistent local save data. Everything — planets, asteroid belts, comets, nebulas — is generated dynamically from seeded algorithms.
 
 🔹 Features from the Code
