@@ -1,0 +1,1024 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Android 16 — Space (Tablet + SVG UI)</title>
+<style>
+:root{
+  --hud-bg: rgba(6,8,12,0.56);
+  --btn-bg: rgba(255,255,255,0.06);
+  --accent: #7CFF9E;
+  --tooltip-bg: rgba(10,10,12,0.95);
+}
+html,body{height:100%;margin:0;background:#000;color:#fff;font-family:Inter,system-ui,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+canvas{display:block; width:100vw; height:100vh; touch-action:none; background:linear-gradient(#01020a,#020417)}
+.hud{position:absolute;z-index:60;padding:10px;border-radius:10px;background:var(--hud-bg);backdrop-filter:blur(6px);box-shadow:0 6px 24px rgba(0,0,0,0.6)}
+#hudTop{left:10px;top:10px;min-width:360px;display:flex;gap:8px;align-items:center}
+#hudRight{right:10px;top:10px;width:300px;max-width:46vw}
+#hudBottom{left:10px;bottom:10px}
+.small{font-size:13px;color:#dcdcdc}
+button{padding:8px 10px;border-radius:8px;background:var(--btn-bg);border:1px solid rgba(255,255,255,0.06);color:#e9e9e9;cursor:pointer}
+.iconBtn{background:transparent;border:0;color:inherit;font-size:18px;padding:8px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px}
+.iconBtn svg{width:22px;height:22px;display:block}
+#minimapCanvas{width:140px;height:140px;border-radius:8px;background:rgba(0,0,0,0.25)}
+#settingsModal{display:none;position:fixed;inset:0;z-index:150;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center}
+#settingsDialog{width:92%;max-width:720px;background:rgba(8,8,12,0.98);border-radius:12px;padding:16px;box-shadow:0 14px 50px rgba(0,0,0,0.7)}
+.settingsRow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-bottom:1px dashed rgba(255,255,255,0.03)}
+input[type="range"]{width:160px}
+.tooltip{position:absolute;z-index:9999;background:var(--tooltip-bg);padding:6px 8px;border-radius:6px;font-size:13px;opacity:0;transform:translateY(6px) scale(0.98);transition:all .12s;pointer-events:none}
+.tooltip.show{opacity:1;transform:translateY(0) scale(1)}
+#tabletPanel{display:none;position:fixed;inset:0;z-index:220;background:linear-gradient(180deg,rgba(10,10,14,0.96),rgba(4,4,8,0.98));color:#eaeaea;padding:18px;overflow:auto}
+#tabletHeader{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.planetCard{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border:1px solid rgba(255,255,255,0.04);padding:12px;border-radius:10px;margin-bottom:10px;display:flex;gap:12px}
+.planetThumb{width:84px;height:84px;border-radius:8px;border:1px solid rgba(255,255,255,0.03);flex:0 0 84px}
+.planetInfo{flex:1;min-width:0}
+.kv{font-size:13px;color:#bdbdbd}
+@media (max-width:720px){
+  #hudTop{left:8px;right:8px;top:8px;min-width:auto;flex-wrap:wrap}
+  #hudRight{right:8px;top:auto;bottom:12px;left:auto;width:calc(100% - 28px);max-width:none}
+  #minimapCanvas{width:110px;height:110px}
+  input[type="range"]{width:120px}
+}
+/* Extra mobile responsive tweaks */
+@media (max-width: 480px) {
+  #hudTop {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px;
+    font-size: 13px;
+  }
+  #hudTop .iconBtn, 
+  #hudRight .iconBtn, 
+  #hudBottom .iconBtn {
+    width: 38px;
+    height: 38px;
+  }
+  .iconBtn svg {
+    width: 18px;
+    height: 18px;
+  }
+  #hudRight {
+    position: fixed;
+    bottom: 8px;
+    right: 8px;
+    top: auto;
+    left: 8px;
+    width: auto;
+    max-width: none;
+  }
+  #minimapCanvas {
+    width: 90px;
+    height: 90px;
+  }
+  #settingsDialog, 
+  #tabletPanel {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    border-radius: 0;
+    padding: 12px;
+  }
+  .planetThumb {
+    width: 64px;
+    height: 64px;
+    flex: 0 0 64px;
+  }
+  .planetInfo {
+    font-size: 13px;
+  }
+  .settingsRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  input[type="range"] {
+    width: 100%;
+  }
+}
+
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+
+<!-- Top-left HUD -->
+<div id="hudTop" class="hud" aria-label="Game HUD">
+  <div style="display:flex;flex-direction:column">
+    <div style="font-weight:700">Android 16 — Space</div>
+    <div class="small" style="margin-top:6px">Planets: <strong id="planetCount">0</strong> · Credits: <strong id="credits">0</strong></div>
+  </div>
+
+  <div style="display:flex;gap:8px;margin-left:12px;align-items:center">
+    <button id="autopilotBtn" class="iconBtn" title="Toggle autopilot" data-tip="Autopilot: guide to nearest scanned planet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 12h6l4 4V6l-4 4H4"></path></svg></button>
+    <button id="scanBtn" class="iconBtn" title="Scan nearby" data-tip="Scan for nearby planets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="6"/><path d="M21 21l-4.35-4.35"/></svg></button>
+    <button id="upgradesBtn" class="iconBtn" title="Open Upgrades" data-tip="Open the ship upgrades panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2v4M5.6 5.6l2.8 2.8M2 12h4M5.6 18.4l2.8-2.8M12 22v-4M18.4 18.4l-2.8-2.8M22 12h-4M18.4 5.6l-2.8 2.8"/></svg></button>
+    <button id="tabletBtn" class="iconBtn" title="Open Planet Tablet" data-tip="Open your planet log (tablet)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 2v2M16 2v2"/></svg></button>
+  </div>
+
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+    <button id="musicIconBtn" class="iconBtn" data-tip="Toggle Music" title="Toggle music"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 17V5l12-2v12"/></svg></button>
+    <button id="sfxIconBtn" class="iconBtn" data-tip="Toggle SFX" title="Toggle sfx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19 5a8 8 0 0 1 0 14"/></svg></button>
+    <button id="engineIconBtn" class="iconBtn" data-tip="Toggle Engine" title="Toggle engine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12h3l3-8 3 16 3-8h3"/></svg></button>
+    <button id="settingsBtn" class="iconBtn" data-tip="Settings" title="Open settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7z"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1A2 2 0 0 1 2.3 17.9l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1A2 2 0 0 1 6.1 2.3l.1.1a1.6 1.6 0 0 0 1.8.3h.1A1.6 1.6 0 0 0 9.6 2.2L10 2a2 2 0 0 1 4 0l.4.2a1.6 1.6 0 0 0 1.2 1.4h.1a1.6 1.6 0 0 0 1.8-.3l.1-.1A2 2 0 0 1 21.7 6.1l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1c.4.6.4 1.4 0 2z"/></svg></button>
+  </div>
+</div>
+
+<!-- Right HUD -->
+<div id="hudRight" class="hud">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <div class="title" style="font-weight:700">Scanner</div>
+    <div class="muted" id="scanStatus">Ready</div>
+  </div>
+
+  <canvas id="minimapCanvas" width="280" height="280" style="display:block;margin-top:8px;border:1px solid rgba(255,255,255,0.03)"></canvas>
+
+  <div style="margin-top:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div class="muted">Scan Results</div>
+      <button id="clearScansBtn" style="padding:6px 10px;font-size:12px">Clear</button>
+    </div>
+    <div id="scanResults" style="max-height:220px;overflow:auto;padding:8px 6px;border-radius:6px;background:rgba(0,0,0,0.12);margin-top:6px"></div>
+  </div>
+</div>
+
+<!-- Bottom HUD -->
+<div id="hudBottom" class="hud">
+  <div class="small">Ship Speed: <span id="shipSpeed">0</span></div>
+  <div class="small">Scan Range: <span id="scanRangeDisplay">--</span> units</div>
+</div>
+
+<!-- Settings Modal -->
+<div id="settingsModal">
+  <div id="settingsDialog">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:700">Settings</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button id="saveBtn">Save Game</button>
+        <button id="loadBtn">Load Game</button>
+        <button id="resetBtn">Reset Save</button>
+        <button id="closeSettings" class="iconBtn" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+      </div>
+    </div>
+
+    <div style="margin-top:12px">
+      <div class="settingsRow">
+        <div style="flex:1"><strong>Master Volume</strong><div style="font-size:12px;color:#bdbdbd">Overall volume</div></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input id="masterSlider" type="range" min="0" max="100" step="1">
+          <div id="masterLabel" style="font-size:13px">--%</div>
+        </div>
+      </div>
+
+      <div class="settingsRow">
+        <div style="flex:1"><strong>Music</strong><div style="font-size:12px;color:#bdbdbd">Background ambience</div></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button id="musicMuteBtn" class="iconBtn" title="Mute music"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 17V5l12-2v14"/></svg></button>
+          <input id="musicSlider" type="range" min="0" max="100" step="1">
+          <div id="musicLabel" style="font-size:13px">--%</div>
+        </div>
+      </div>
+
+      <div class="settingsRow">
+        <div style="flex:1"><strong>SFX</strong><div style="font-size:12px;color:#bdbdbd">Scans, chimes, thrust start/stop</div></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button id="sfxMuteBtn" class="iconBtn" title="Mute sfx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19 5a8 8 0 0 1 0 14"/></svg></button>
+          <input id="sfxSlider" type="range" min="0" max="100" step="1">
+          <div id="sfxLabel" style="font-size:13px">--%</div>
+        </div>
+      </div>
+
+      <div class="settingsRow">
+        <div style="flex:1"><strong>Engine</strong><div style="font-size:12px;color:#bdbdbd">Motor / rumble</div></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button id="engineMuteBtn" class="iconBtn" title="Mute engine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12h3l3-8 3 16 3-8h3"/></svg></button>
+          <input id="engineSlider" type="range" min="0" max="100" step="1">
+          <div id="engineLabel" style="font-size:13px">--%</div>
+        </div>
+      </div>
+
+      <div class="settingsRow">
+        <div style="flex:1"><strong>Visuals & Performance</strong><div style="font-size:12px;color:#bdbdbd">Flame toggle & Low-power mode</div></div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <label style="display:flex;align-items:center;gap:6px"><input id="flameToggle" type="checkbox"> Flame visuals</label>
+          <label style="display:flex;align-items:center;gap:6px"><input id="lowPowerToggle" type="checkbox"> Low power</label>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Upgrades Modal -->
+<div id="upgradesModal" style="display:none;position:fixed;inset:0;z-index:180;justify-content:center;align-items:center">
+  <div style="width:90%;max-width:520px;background:rgba(10,10,14,0.95);border-radius:12px;padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:700">Ship Upgrades</div>
+      <button id="closeUpgrades">Close</button>
+    </div>
+    <p style="color:#bdbdbd">Use credits from discoveries to buy upgrades.</p>
+    <div id="upgradesList"></div>
+  </div>
+</div>
+
+<!-- Tablet (planet log) -->
+<div id="tabletPanel" role="dialog" aria-modal="true">
+  <div id="tabletHeader">
+    <div style="font-weight:700;font-size:20px">Planet Tablet</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button id="exportLog">Export</button>
+      <button id="importLog">Import</button>
+      <button id="closeTablet" class="iconBtn" title="Close tablet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+  </div>
+  <div id="planetList"></div>
+</div>
+
+<!-- Tooltip element -->
+<div id="tooltip" class="tooltip" role="tooltip" aria-hidden="true"></div>
+
+<script>
+"use strict";
+
+/* -------------------------
+   Storage keys & defaults
+   ------------------------- */
+const STORAGE = {
+  discovered: 'android16.discovered.v2',
+  scanned: 'android16.scanned.v2',
+  credits: 'android16.credits.v2',
+  masterVol: 'android16.master.v2',
+  musicVol: 'android16.music.v2',
+  sfxVol: 'android16.sfx.v2',
+  engineVol: 'android16.engine.v2',
+  musicMuted: 'android16.musicmuted.v2',
+  sfxMuted: 'android16.sfxmuted.v2',
+  engineMuted: 'android16.enginemuted.v2',
+  flameEnabled: 'android16.flame.v2',
+  lowPower: 'android16.lowpower.v2',
+  shipState: 'android16.ship.v2',
+  upgrades: 'android16.upgrades.v2',
+  planetLog: 'android16.planetlog.v2'
+};
+
+let masterVolume = 0.9, musicVolume = 0.6, sfxVolume = 0.9, engineVolume = 1.0;
+let musicMuted = false, sfxMuted = false, engineMuted = false;
+let flameEnabled = true, lowPowerMode = false;
+
+/* world constants */
+const CHUNK = 700;
+const RENDER_DISTANCE = 2;
+const STAR_LAYERS_BASE = [{count:120,par:0.15,size:0.8},{count:90,par:0.45,size:1.4},{count:60,par:0.9,size:2.6}];
+let STAR_QUALITY_MULT = 1.0;
+const SCAN_BASE_RANGE = 900; let scanRange = SCAN_BASE_RANGE;
+
+/* game state */
+const ship = { x:0, y:0, angle:0, speed:0, autopilot:false, autopilotTarget:null };
+let shipMaxSpeed = 6;
+let discoveredCount = 0;
+let credits = 0;
+const discoveredPlanets = new Set();
+const scannedPlanets = {};
+let upgradesState = { engine:0, scanner:0, efficiency:0 };
+const planetLog = {}; // id -> entry
+
+/* rng helpers */
+function iHash(a){ a=(a^61)^(a>>>16); a = a + (a<<3); a = a ^ (a>>>4); a = Math.imul(a,0x27d4eb2d); a = a ^ (a>>>15); return a>>>0; }
+function pairHash(x,y){ const A=iHash(x|0); const B=iHash((y|0)^0x9e3779b1); return iHash(A + (B<<1)); }
+function seededRandom(seed){ const t=(seed>>>0); return Math.abs((Math.sin(t)*43758.5453123)%1); }
+function randRange(seed,a,b){ return a + seededRandom(seed)*(b-a); }
+function colorFromSeed(seed){ const h=Math.floor(randRange(seed,0,360)); const s=Math.floor(randRange(seed+1,60,90)); const l=Math.floor(randRange(seed+2,40,65)); return `hsl(${h}deg ${s}% ${l}%)`; }
+
+/* Ensure DOM elements exist before wiring listeners */
+document.addEventListener('DOMContentLoaded', () => {
+
+  /* Canvas setup */
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d', { alpha:false });
+  let DPR = Math.min(window.devicePixelRatio||1,2);
+  function resizeCanvas(){ DPR = Math.min(window.devicePixelRatio||1,2); canvas.width = Math.floor(window.innerWidth * DPR); canvas.height = Math.floor(window.innerHeight * DPR); canvas.style.width = window.innerWidth + 'px'; canvas.style.height = window.innerHeight + 'px'; ctx.setTransform(DPR,0,0,DPR,0,0); }
+  resizeCanvas(); window.addEventListener('resize', resizeCanvas);
+
+  /* DOM refs */
+  const planetCountEl = document.getElementById('planetCount');
+  const creditsEl = document.getElementById('credits');
+  const shipSpeedEl = document.getElementById('shipSpeed');
+  const scanRangeDisplay = document.getElementById('scanRangeDisplay');
+  const scanStatusEl = document.getElementById('scanStatus');
+  const scanResultsEl = document.getElementById('scanResults');
+  const minimapCanvas = document.getElementById('minimapCanvas'); const minimapCtx = minimapCanvas.getContext('2d');
+
+  const autopilotBtn = document.getElementById('autopilotBtn');
+  const scanBtn = document.getElementById('scanBtn');
+  const upgradesBtn = document.getElementById('upgradesBtn');
+  const tabletBtn = document.getElementById('tabletBtn');
+
+  const musicIconBtn = document.getElementById('musicIconBtn');
+  const sfxIconBtn = document.getElementById('sfxIconBtn');
+  const engineIconBtn = document.getElementById('engineIconBtn');
+  const settingsBtn = document.getElementById('settingsBtn');
+  const settingsModal = document.getElementById('settingsModal');
+  const closeSettings = document.getElementById('closeSettings');
+
+  const masterSlider = document.getElementById('masterSlider');
+  const masterLabel = document.getElementById('masterLabel');
+  const musicSlider = document.getElementById('musicSlider');
+  const musicLabel = document.getElementById('musicLabel');
+  const sfxSlider = document.getElementById('sfxSlider');
+  const sfxLabel = document.getElementById('sfxLabel');
+  const engineSlider = document.getElementById('engineSlider');
+  const engineLabel = document.getElementById('engineLabel');
+
+  const musicMuteBtn = document.getElementById('musicMuteBtn');
+  const sfxMuteBtn = document.getElementById('sfxMuteBtn');
+  const engineMuteBtn = document.getElementById('engineMuteBtn');
+
+  const flameToggleEl = document.getElementById('flameToggle');
+  const lowPowerToggleEl = document.getElementById('lowPowerToggle');
+
+  const saveBtn = document.getElementById('saveBtn');
+  const loadBtn = document.getElementById('loadBtn');
+  const resetBtn = document.getElementById('resetBtn');
+
+  const clearScansBtn = document.getElementById('clearScansBtn');
+
+  const upgradesModal = document.getElementById('upgradesModal');
+  const upgradesList = document.getElementById('upgradesList');
+  const closeUpgrades = document.getElementById('closeUpgrades');
+
+  const tabletPanel = document.getElementById('tabletPanel');
+  const tabletList = document.getElementById('planetList');
+  const closeTablet = document.getElementById('closeTablet');
+  const exportLog = document.getElementById('exportLog');
+  const importLog = document.getElementById('importLog');
+
+  const tooltip = document.getElementById('tooltip');
+
+  /* load settings + saved data */
+  function loadSettings(){
+    try{
+      const mv = parseFloat(localStorage.getItem(STORAGE.masterVol)); if (!isNaN(mv)) masterVolume = Math.min(1, Math.max(0, mv));
+      const mus = parseFloat(localStorage.getItem(STORAGE.musicVol)); if (!isNaN(mus)) musicVolume = Math.min(1, Math.max(0, mus));
+      const sf = parseFloat(localStorage.getItem(STORAGE.sfxVol)); if (!isNaN(sf)) sfxVolume = Math.min(1, Math.max(0, sf));
+      const ev = parseFloat(localStorage.getItem(STORAGE.engineVol)); if (!isNaN(ev)) engineVolume = Math.min(1, Math.max(0, ev));
+      const mm = localStorage.getItem(STORAGE.musicMuted); if (mm !== null) musicMuted = (mm === '1');
+      const sm = localStorage.getItem(STORAGE.sfxMuted); if (sm !== null) sfxMuted = (sm === '1');
+      const em = localStorage.getItem(STORAGE.engineMuted); if (em !== null) engineMuted = (em === '1');
+      const flame = localStorage.getItem(STORAGE.flameEnabled); if (flame !== null) flameEnabled = (flame === '1');
+      const lp = localStorage.getItem(STORAGE.lowPower); if (lp !== null) lowPowerMode = (lp === '1');
+      const up = localStorage.getItem(STORAGE.upgrades); if (up) upgradesState = Object.assign(upgradesState, JSON.parse(up));
+      const shipRaw = localStorage.getItem(STORAGE.shipState); if (shipRaw){ const s = JSON.parse(shipRaw); ship.x = s.x||0; ship.y = s.y||0; ship.angle = s.angle||0; ship.speed = s.speed||0; }
+    }catch(e){ console.warn('load settings', e); }
+  }
+  function loadSavedGame(){
+    try{
+      const raw = localStorage.getItem(STORAGE.discovered); discoveredPlanets.clear(); if (raw) JSON.parse(raw).forEach(id=>discoveredPlanets.add(id));
+      discoveredCount = discoveredPlanets.size;
+      const rawS = localStorage.getItem(STORAGE.scanned); for (const k in scannedPlanets) delete scannedPlanets[k]; if (rawS) Object.assign(scannedPlanets, JSON.parse(rawS));
+      credits = parseInt(localStorage.getItem(STORAGE.credits) || '0',10) || 0;
+      const logRaw = localStorage.getItem(STORAGE.planetLog); if (logRaw) { const parsed = JSON.parse(logRaw); for (const k in parsed) planetLog[k] = parsed[k]; }
+      const shipRaw = localStorage.getItem(STORAGE.shipState); if (shipRaw){ const s=JSON.parse(shipRaw); ship.x=s.x||0; ship.y=s.y||0; ship.angle=s.angle||0; ship.speed=s.speed||0; }
+    }catch(e){ console.warn('load saved game', e); }
+  }
+  function saveSettings(){
+    try{
+      localStorage.setItem(STORAGE.masterVol, String(masterVolume));
+      localStorage.setItem(STORAGE.musicVol, String(musicVolume));
+      localStorage.setItem(STORAGE.sfxVol, String(sfxVolume));
+      localStorage.setItem(STORAGE.engineVol, String(engineVolume));
+      localStorage.setItem(STORAGE.musicMuted, musicMuted? '1' : '0');
+      localStorage.setItem(STORAGE.sfxMuted, sfxMuted? '1' : '0');
+      localStorage.setItem(STORAGE.engineMuted, engineMuted? '1' : '0');
+      localStorage.setItem(STORAGE.flameEnabled, flameEnabled? '1' : '0');
+      localStorage.setItem(STORAGE.lowPower, lowPowerMode? '1' : '0');
+      localStorage.setItem(STORAGE.upgrades, JSON.stringify(upgradesState));
+    }catch(e){ console.warn('save settings', e); }
+  }
+  function saveGameToStorage(){
+    try{
+      localStorage.setItem(STORAGE.discovered, JSON.stringify(Array.from(discoveredPlanets)));
+      localStorage.setItem(STORAGE.scanned, JSON.stringify(scannedPlanets));
+      localStorage.setItem(STORAGE.credits, String(credits));
+      localStorage.setItem(STORAGE.planetLog, JSON.stringify(planetLog));
+      const s = { x:ship.x, y:ship.y, angle:ship.angle, speed:ship.speed }; localStorage.setItem(STORAGE.shipState, JSON.stringify(s));
+      saveSettings();
+    }catch(e){ console.warn('save game', e); }
+  }
+
+  function resetSave(){
+    if (!confirm('Reset save? This will erase discovered planets, scans, credits and ship position.')) return;
+    try{
+      localStorage.removeItem(STORAGE.discovered); localStorage.removeItem(STORAGE.scanned); localStorage.removeItem(STORAGE.credits);
+      localStorage.removeItem(STORAGE.shipState); localStorage.removeItem(STORAGE.planetLog);
+      discoveredPlanets.clear(); for (const k in scannedPlanets) delete scannedPlanets[k]; credits = 0;
+      for (const k in planetLog) delete planetLog[k];
+      ship.x=0; ship.y=0; ship.angle=0; ship.speed=0; saveSettings(); saveGameToStorage(); refreshScanResults(); updateHUD(); notify('Save reset');
+    }catch(e){ console.warn('reset save', e); }
+  }
+
+  /* ------------------ Audio (WebAudio synth) ------------------ */
+  let audioCtx = null, masterGain=null, musicGain=null, sfxGain=null, engineGainNode=null;
+  let engineOsc=null, engineFilter=null, engineMainGain=null, subOsc=null, subGain=null;
+  let musicPlaying=false, musicInterval=null, chordIndex=0;
+  const chords = [[261.626,329.628,392.0],[220.000,277.183,329.628],[349.228,436.0,523.251],[196.0,246.942,293.665]];
+
+  function initAudio(){
+    if (audioCtx) return;
+    try{
+      audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+      masterGain = audioCtx.createGain(); masterGain.gain.value = masterVolume; masterGain.connect(audioCtx.destination);
+      musicGain = audioCtx.createGain(); musicGain.gain.value = musicMuted?0:musicVolume; musicGain.connect(masterGain);
+      sfxGain = audioCtx.createGain(); sfxGain.gain.value = sfxMuted?0:sfxVolume; sfxGain.connect(masterGain);
+      engineGainNode = audioCtx.createGain(); engineGainNode.gain.value = engineMuted?0:engineVolume; engineGainNode.connect(masterGain);
+      // engine rumble
+      engineOsc = audioCtx.createOscillator(); engineOsc.type='sawtooth';
+      engineFilter = audioCtx.createBiquadFilter(); engineFilter.type='lowpass'; engineFilter.frequency.value=900;
+      engineMainGain = audioCtx.createGain(); engineMainGain.gain.value=0.00015;
+      engineOsc.connect(engineFilter); engineFilter.connect(engineMainGain); engineMainGain.connect(engineGainNode);
+      engineOsc.start();
+      subOsc = audioCtx.createOscillator(); subOsc.type='sine'; subOsc.frequency.value=45;
+      subGain = audioCtx.createGain(); subGain.gain.value=0.0002; subOsc.connect(subGain); subGain.connect(engineGainNode); subOsc.start();
+      startBackgroundMusic();
+      applyAllVolumes();
+    }catch(e){ console.warn('audio init', e); audioCtx = null; }
+  }
+  function applyAllVolumes(){
+    if (!audioCtx) return;
+    masterGain.gain.setTargetAtTime(masterVolume, audioCtx.currentTime, 0.02);
+    musicGain.gain.setTargetAtTime(musicMuted?0:musicVolume, audioCtx.currentTime, 0.02);
+    sfxGain.gain.setTargetAtTime(sfxMuted?0:sfxVolume, audioCtx.currentTime, 0.02);
+    engineGainNode.gain.setTargetAtTime(engineMuted?0:engineVolume, audioCtx.currentTime, 0.02);
+  }
+  function updateEngineSound(thrusting){
+    if (!audioCtx) return;
+    const speed = Math.abs(ship.speed);
+    const baseFreq = 120;
+    engineOsc.frequency.setTargetAtTime(baseFreq + speed*110 + (thrusting?60:0), audioCtx.currentTime, 0.02);
+    engineFilter.frequency.setTargetAtTime(700 + Math.min(2200, speed*300 + (thrusting?400:0)), audioCtx.currentTime, 0.05);
+    engineMainGain.gain.setTargetAtTime(0.002 + (speed/6)*0.03 + (thrusting?0.06:0), audioCtx.currentTime, 0.03);
+    subGain.gain.setTargetAtTime(0.0004 + (thrusting?0.0018:(speed/6)*0.0007), audioCtx.currentTime, 0.05);
+  }
+
+  function playDiscoveryChime(){ if (!audioCtx) return; const now=audioCtx.currentTime; const o=audioCtx.createOscillator(); o.type='sine'; o.frequency.value=600; const g=audioCtx.createGain(); g.gain.value=0; o.connect(g); g.connect(sfxGain); o.start(now); g.gain.linearRampToValueAtTime(0.2, now+0.01); o.frequency.exponentialRampToValueAtTime(1200, now+0.12); g.gain.linearRampToValueAtTime(0, now+0.35); o.stop(now+0.45); }
+  function playScanPing(){ if (!audioCtx) return; const now=audioCtx.currentTime; const o=audioCtx.createOscillator(); o.type='square'; o.frequency.value=1200; const g=audioCtx.createGain(); g.gain.value=0; o.connect(g); g.connect(sfxGain); o.start(now); g.gain.linearRampToValueAtTime(0.18,now+0.005); g.gain.exponentialRampToValueAtTime(0.001, now+0.24); o.stop(now+0.26); }
+  function playThrustStart(){ if (!audioCtx) return; const now=audioCtx.currentTime; const len=0.18; const buffer=audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate*len), audioCtx.sampleRate); const d=buffer.getChannelData(0); for(let i=0;i<d.length;i++) d[i] = (Math.random()*2-1)*(1-i/d.length)*0.6; const src=audioCtx.createBufferSource(); src.buffer=buffer; const g=audioCtx.createGain(); g.gain.value=0.00001; src.connect(g); g.connect(sfxGain); g.gain.linearRampToValueAtTime(0.03, now+0.01); g.gain.exponentialRampToValueAtTime(0.0001, now+0.28); src.start(now); src.stop(now+len+0.05); const o=audioCtx.createOscillator(); o.type='sine'; o.frequency.value=70; const og=audioCtx.createGain(); og.gain.value=0.00001; o.connect(og); og.connect(sfxGain); og.gain.linearRampToValueAtTime(0.0015, now+0.01); og.gain.exponentialRampToValueAtTime(0.00001, now+0.45); o.frequency.exponentialRampToValueAtTime(40, now+0.35); o.start(now); o.stop(now+0.6); }
+  function playThrustStop(){ if (!audioCtx) return; const now=audioCtx.currentTime; const o=audioCtx.createOscillator(); o.type='triangle'; o.frequency.value=160; const g=audioCtx.createGain(); g.gain.value=0; o.connect(g); g.connect(sfxGain); g.gain.linearRampToValueAtTime(0.0025, now+0.005); g.gain.exponentialRampToValueAtTime(0.00001, now+0.45); o.frequency.exponentialRampToValueAtTime(40, now+0.45); o.start(now); o.stop(now+0.6); }
+
+  function startBackgroundMusic(){
+    if (!audioCtx || musicPlaying) return;
+    musicPlaying = true; scheduleChord(chordIndex);
+    musicInterval = setInterval(()=>{ chordIndex = (chordIndex+1) % chords.length; scheduleChord(chordIndex); }, 3500);
+  }
+  function scheduleChord(index){
+    if (!audioCtx) return;
+    const now = audioCtx.currentTime; const freqs=chords[index];
+    const osc = audioCtx.createOscillator(); osc.type='sine'; osc.frequency.value=freqs[0];
+    const osc2 = audioCtx.createOscillator(); osc2.type='triangle'; osc2.frequency.value=freqs[1];
+    const osc3 = audioCtx.createOscillator(); osc3.type='sine'; osc3.frequency.value=freqs[2];
+    const filter = audioCtx.createBiquadFilter(); filter.type='lowpass'; filter.frequency.value=900;
+    const lfo = audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value = 0.05;
+    const lfoGain = audioCtx.createGain(); lfoGain.gain.value = 120; lfo.connect(lfoGain); lfoGain.connect(filter.frequency);
+    const g = audioCtx.createGain(); g.gain.value = 0.0001;
+    const delay = audioCtx.createDelay(); delay.delayTime.value = 0.34 + Math.random()*0.12;
+    const fb = audioCtx.createGain(); fb.gain.value = 0.22; delay.connect(fb); fb.connect(delay);
+    const panner = audioCtx.createStereoPanner(); panner.pan.value = (Math.random()-0.5)*0.6;
+    osc.connect(filter); osc2.connect(filter); osc3.connect(filter); filter.connect(g);
+    g.connect(delay); g.connect(panner); delay.connect(panner); panner.connect(musicGain);
+    const dur = 3.3 + Math.random()*0.6; const attack=0.6;
+    g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(0.06, now+attack); g.gain.linearRampToValueAtTime(0.02, now+dur); g.gain.exponentialRampToValueAtTime(0.0001, now+dur+0.8);
+    osc.start(now); osc2.start(now); osc3.start(now); lfo.start(now); osc.stop(now+dur+1.0); osc2.stop(now+dur+1.0); osc3.stop(now+dur+1.0); lfo.stop(now+dur+1.0);
+    setTimeout(()=>{ try{ g.disconnect(); filter.disconnect(); delay.disconnect(); panner.disconnect(); }catch(e){} }, (dur + 1500));
+  }
+
+  /* ---------- Input & controls ---------- */
+  const keys = {}; window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if (!audioCtx) initAudio(); });
+  window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+  let touching=false, touchX=0;
+  canvas.addEventListener('touchstart', e => { touching=true; touchX = e.touches[0].clientX; if(!audioCtx) initAudio(); }, {passive:true});
+  canvas.addEventListener('touchmove', e => { touchX = e.touches[0].clientX; }, {passive:true});
+  canvas.addEventListener('touchend', e => { touching=false; }, {passive:true});
+  canvas.addEventListener('click', ()=> { if (!audioCtx) initAudio(); });
+
+  /* ---------- Visuals: comets, stars, planets, flames ---------- */
+  let comets = []; let flameParticles = [];
+  function maybeSpawnComet(){ const chance = lowPowerMode?0.0035:0.006; if (Math.random() < chance && comets.length < (lowPowerMode?4:6)){ const angle = Math.random()*Math.PI*2; const dist = Math.max(window.innerWidth, window.innerHeight) * (1.2 + Math.random()*1.5) * 1.6; const startX = ship.x + Math.cos(angle)*dist; const startY = ship.y + Math.sin(angle)*dist; const speed = 3 + Math.random()*3; const vx = -Math.cos(angle)*speed + (Math.random()-0.5); const vy = -Math.sin(angle)*speed + (Math.random()-0.5); comets.push({x:startX,y:startY,vx,vy,life:0,maxLife:280 + Math.floor(Math.random()*240),trail:[],size:3+Math.random()*3,color:`hsl(${Math.floor(Math.random()*50+190)}deg 90% 70%)`}); } }
+  function updateComets(){ for (let i=comets.length-1;i>=0;i--){ const c=comets[i]; c.x+=c.vx; c.y+=c.vy; c.life++; c.trail.push({x:c.x,y:c.y}); if (c.trail.length > (lowPowerMode?18:40)) c.trail.shift(); if (c.life > c.maxLife) comets.splice(i,1); } }
+  function drawComets(){ for (const c of comets){ for (let i=0;i<c.trail.length-1;i++){ const a=i/c.trail.length; const p1=c.trail[i], p2=c.trail[i+1]; const sx1=p1.x-ship.x+innerWidth/2, sy1=p1.y-ship.y+innerHeight/2; const sx2=p2.x-ship.x+innerWidth/2, sy2=p2.y-ship.y+innerHeight/2; ctx.beginPath(); ctx.strokeStyle = `rgba(200,230,255,${0.02 + a*(lowPowerMode?0.25:0.4)})`; ctx.lineWidth=lowPowerMode?1.2:2; ctx.moveTo(sx1,sy1); ctx.lineTo(sx2,sy2); ctx.stroke(); } const hx=c.x-ship.x+innerWidth/2, hy=c.y-ship.y+innerHeight/2; const g=ctx.createRadialGradient(hx,hy,c.size*0.2,hx,hy,c.size*3); g.addColorStop(0,c.color); g.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(hx,hy,c.size*(lowPowerMode?3:4),0,Math.PI*2); ctx.fill(); } }
+
+  function drawNebulas(cxChunk,cyChunk){
+    for (let dx=-RENDER_DISTANCE;dx<=RENDER_DISTANCE;dx++) for (let dy=-RENDER_DISTANCE;dy<=RENDER_DISTANCE;dy++){
+      const chunkX = cxChunk + dx, chunkY = cyChunk + dy;
+      const seed = pairHash(chunkX+12345, chunkY-6789);
+      if (seed % 10 < 3) {
+        const nx = chunkX*CHUNK + randRange(seed+1, CHUNK*0.2, CHUNK*0.8);
+        const ny = chunkY*CHUNK + randRange(seed+2, CHUNK*0.2, CHUNK*0.8);
+        const radius = CHUNK * randRange(seed+3, 0.6, 1.4);
+        const hue = Math.floor(randRange(seed+4, 160, 320));
+        const sat = Math.floor(randRange(seed+5, 40, 80));
+        const light = Math.floor(randRange(seed+6, 40, 70));
+        const screenX = nx - ship.x + innerWidth/2;
+        const screenY = ny - ship.y + innerHeight/2;
+        const g = ctx.createRadialGradient(screenX, screenY, 0, screenX, screenY, radius * (0.6 + Math.abs(Math.sin(Date.now()*0.00015))));
+        g.addColorStop(0, `hsla(${hue}deg ${sat}% ${light}% / ${lowPowerMode?0.06:0.11})`);
+        g.addColorStop(0.4, `hsla(${hue}deg ${sat}% ${Math.max(20,light-10)}% / ${lowPowerMode?0.03:0.06})`);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(screenX, screenY, radius*(lowPowerMode?0.7:1),0,Math.PI*2); ctx.fill();
+      }
+    }
+  }
+
+  function drawStarLayers(cxChunk,cyChunk){
+    for (const layerBase of STAR_LAYERS_BASE){
+      const layer = {...layerBase, count: Math.max(6, Math.floor(layerBase.count * STAR_QUALITY_MULT))};
+      for (let dx=-RENDER_DISTANCE;dx<=RENDER_DISTANCE;dx++) for (let dy=-RENDER_DISTANCE;dy<=RENDER_DISTANCE;dy++){
+        const chunkX = cxChunk + dx, chunkY = cyChunk + dy;
+        const seed = pairHash(chunkX + Math.floor(layer.par*1000), chunkY + Math.floor(layer.par*1000));
+        const count = Math.max(4, Math.floor(layer.count / Math.max(1, Math.abs(layer.par*4))));
+        for (let s=0;s<count;s++){
+          const sx = chunkX*CHUNK + randRange(seed + s*13, 0, CHUNK);
+          const sy = chunkY*CHUNK + randRange(seed + s*17, 0, CHUNK);
+          const screenX = sx - ship.x * layer.par + innerWidth/2;
+          const screenY = sy - ship.y * layer.par + innerHeight/2;
+          if (screenX < -4 || screenX > innerWidth+4 || screenY < -4 || screenY > innerHeight+4) continue;
+          const size = layer.size * (0.75 + ((seed + s) % 3) * 0.25);
+          const fade = 0.5 + (Math.abs(Math.sin((seed + s*7) * 0.0003 + Date.now()*0.0008)) * (lowPowerMode?0.2:0.4));
+          ctx.globalAlpha = fade;
+          ctx.fillStyle = 'white';
+          ctx.beginPath(); ctx.arc(screenX, screenY, size * (lowPowerMode?0.8:1), 0, Math.PI*2); ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+  }
+
+  function drawPlanetsAndBelts(cxChunk,cyChunk){
+    for (let dx=-RENDER_DISTANCE;dx<=RENDER_DISTANCE;dx++) for (let dy=-RENDER_DISTANCE;dy<=RENDER_DISTANCE;dy++){
+      const chunkX = cxChunk + dx, chunkY = cyChunk + dy;
+      const seed = pairHash(chunkX, chunkY);
+      const numPlanets = 1 + Math.floor(randRange(seed,0,3));
+      for (let i=0;i<numPlanets;i++){
+        const px = chunkX*CHUNK + randRange(seed + i*11, 0, CHUNK);
+        const py = chunkY*CHUNK + randRange(seed + i*17, 0, CHUNK);
+        const radius = randRange(seed + i*23, 10, 36);
+        const color = colorFromSeed(seed + i*29);
+        const screenX = px - ship.x + innerWidth/2;
+        const screenY = py - ship.y + innerHeight/2;
+        if (screenX < -radius*2 || screenX > innerWidth + radius*2 || screenY < -radius*2 || screenY > innerHeight + radius*2) continue;
+        const lightOffsetX = chunkX*CHUNK + (randRange(seed+50, -CHUNK*0.6, CHUNK*0.6));
+        const lightOffsetY = chunkY*CHUNK + (randRange(seed+51, -CHUNK*0.6, CHUNK*0.6));
+        const lx = lightOffsetX - ship.x + innerWidth/2;
+        const ly = lightOffsetY - ship.y + innerHeight/2;
+        const dxL = (lx - screenX), dyL = (ly - screenY);
+        const distL = Math.hypot(dxL, dyL) || 1;
+        const highlightOffset = Math.min(radius * 0.4, distL * 0.12);
+        const hx = screenX + (dxL / distL) * highlightOffset * -1;
+        const hy = screenY + (dyL / distL) * highlightOffset * -1;
+        const g = ctx.createRadialGradient(hx, hy, Math.max(1, radius*0.1), screenX, screenY, radius);
+        g.addColorStop(0, `rgba(255,255,255,0.25)`); g.addColorStop(0.08, color); g.addColorStop(0.5, color); g.addColorStop(1, 'rgba(0,0,0,0.65)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(screenX, screenY, radius, 0, Math.PI*2); ctx.fill();
+        const rimGradient = ctx.createRadialGradient(screenX, screenY, radius*0.9, screenX, screenY, radius*1.6);
+        rimGradient.addColorStop(0.98, 'rgba(255,255,255,0.02)'); rimGradient.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = rimGradient; ctx.beginPath(); ctx.arc(screenX, screenY, radius*1.6, 0, Math.PI*2); ctx.fill();
+        const atm = ctx.createRadialGradient(screenX, screenY, radius*0.9, screenX, screenY, radius*(lowPowerMode?2.0:2.6));
+        atm.addColorStop(0, 'rgba(255,255,255,0.02)'); atm.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = atm; ctx.beginPath(); ctx.arc(screenX, screenY, radius*(lowPowerMode?2.0:2.6), 0, Math.PI*2); ctx.fill();
+        const detailSeed = seed + i*77; const dots = Math.floor(radius * (lowPowerMode?0.6:1.2));
+        ctx.fillStyle = 'rgba(255,255,255,0.03)';
+        for (let d=0; d<dots; d++){ const theta = randRange(detailSeed + d, 0, Math.PI*2); const rr = Math.random() * radius * 0.7; const dxs = screenX + Math.cos(theta)*rr; const dys = screenY + Math.sin(theta)*rr; ctx.fillRect(dxs, dys, 1, 1); }
+        const beltChance = (seed + i*13) % 10;
+        if (beltChance < 3 && !lowPowerMode) drawAsteroidBelt(px, py, radius, seed + i*99);
+        const distToShip = Math.hypot(px - ship.x, py - ship.y);
+        const id = `${chunkX},${chunkY},${i}`;
+        if (distToShip < radius + 22 && !discoveredPlanets.has(id)) {
+          discoveredPlanets.add(id); discoveredCount = discoveredPlanets.size; credits += 1;
+          saveGameToStorage(); playDiscoveryChime(); notify('Planet Discovered! +1 credit');
+          // add to planet log automatically when discovered
+          const entry = makePlanetEntry(id, px, py, radius, seed + i*29, true);
+          planetLog[id] = entry; saveGameToStorage();
+        }
+      }
+    }
+  }
+
+  function drawAsteroidBelt(centerX, centerY, planetR, seed){
+    const beltRadius = planetR * randRange(seed+1, 2.2, 5.4);
+    const numRocks = Math.floor(18 + randRange(seed+2, 0, 50));
+    for (let j=0;j<numRocks;j++){
+      const baseAngle = randRange(seed + j*13, 0, Math.PI*2);
+      const spin = (Date.now()*0.00005) * (0.4 + (seed % 7) * 0.06);
+      const theta = baseAngle + spin * (1 + j/50);
+      const r = beltRadius + randRange(seed + j*23, -planetR*0.25, planetR*0.25);
+      const ax = centerX + Math.cos(theta) * r; const ay = centerY + Math.sin(theta) * r;
+      const screenX = ax - ship.x + innerWidth/2; const screenY = ay - ship.y + innerHeight/2;
+      if (screenX < -6 || screenX > innerWidth+6 || screenY < -6 || screenY > innerHeight+6) continue;
+      const rockSize = Math.max(0.8, (randRange(seed + j*31, 0.6, 2.6)));
+      ctx.fillStyle = 'rgba(180,180,180,0.85)'; ctx.beginPath(); ctx.ellipse(screenX, screenY, rockSize, rockSize*0.7, theta, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  function spawnFlameParticles(intensity=1){
+    if (!flameEnabled) return;
+    const quality = lowPowerMode?0.35:1.0;
+    const count = Math.min(18, Math.max(2, Math.floor((6 + Math.floor(12 * intensity)) * quality)));
+    for (let i=0;i<count;i++){ const angle = (Math.random()*0.6 - 0.3); const speed = (1.2 + Math.random()*2.4*intensity) * (1 + (Math.random()-0.5)*0.4); const life = Math.floor(12 + Math.random()*22 * (quality)); flameParticles.push({x:0,y:0,vx:-Math.cos(angle)*speed,vy:-Math.sin(angle)*speed,life,age:0,size:(2 + Math.random()*5)*intensity*(quality),alpha:0.9}); }
+  }
+  function updateAndDrawFlames(){
+    if (!flameEnabled) { flameParticles.length = 0; return; }
+    ctx.save(); ctx.translate(innerWidth/2, innerHeight/2); ctx.rotate(ship.angle); ctx.globalCompositeOperation='lighter';
+    for (let i=flameParticles.length-1;i>=0;i--){ const p=flameParticles[i]; p.age++; const lifeRatio = 1 - p.age/p.life; if (lifeRatio<=0){ flameParticles.splice(i,1); continue; } p.vx *= 0.96; p.vy *= 0.96; p.x += p.vx; p.y += p.vy + 0.35; const gx=p.x, gy=p.y; const grad = ctx.createRadialGradient(gx,gy,0,gx,gy,p.size*3); grad.addColorStop(0,`rgba(255,220,150,${0.45*lifeRatio})`); grad.addColorStop(0.35,`rgba(255,130,60,${0.35*lifeRatio})`); grad.addColorStop(0.7,`rgba(180,40,30,${0.18*lifeRatio})`); grad.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=grad; ctx.beginPath(); ctx.ellipse(gx,gy,p.size*lifeRatio,p.size*lifeRatio*0.6,0,0,Math.PI*2); ctx.fill(); }
+    ctx.globalCompositeOperation='source-over'; ctx.restore();
+  }
+
+  /* ---------- Scanning / Planet naming / Planet log ---------- */
+  let scanCooldown = 0, scanActive=false;
+  const syllables = ["ra","do","mi","na","zo","ul","ti","ka","ve","shi","lo","an","ter","gon","pul","xis","yar","om","ke","ne"];
+  function planetNameFromSeed(seed){
+    const n = Math.floor(2 + (seed % 2));
+    let name = '';
+    for (let i=0;i<n;i++){ const idx = Math.floor(seededRandom(seed + i*7) * syllables.length); name += syllables[idx]; }
+    const suffix = Math.floor(seededRandom(seed+99)*90);
+    return name.charAt(0).toUpperCase() + name.slice(1) + (suffix % 7 === 0 ? '-Prime' : '');
+  }
+
+  function makePlanetEntry(id, x, y, r, seed, discovered=false){
+    const name = planetNameFromSeed(seed);
+    // procedural stats
+    const typeRoll = Math.floor(randRange(seed+11,0,100));
+    let type = 'Rocky'; if (typeRoll > 80) type='Gas Giant'; else if (typeRoll > 60) type='Ice World'; else if (typeRoll > 40) type='Ocean World';
+    const temp = Math.round(randRange(seed+21, -180, 420)); // simple range
+    const habit = Math.max(0, Math.min(100, Math.floor(100 - Math.abs(temp - 22) * 0.7 + (seed % 13))));
+    const desc = `A ${type.toLowerCase()} planet with radius ${Math.round(r)} units. Approx. surface temp ${temp}°C. Habitability ~${habit}%.`;
+    return { id, name, x: Math.round(x), y: Math.round(y), r: Math.round(r), seed, type, temp, habit, desc, discovered, time: Date.now() };
+  }
+
+  function doScan(){
+    if (scanCooldown > 0) return;
+    if (!audioCtx) initAudio();
+    playScanPing();
+    scanStatusEl.textContent = 'Scanning...'; scanActive = true; scanCooldown = 120;
+    const cx = Math.floor(ship.x / CHUNK), cy = Math.floor(ship.y / CHUNK);
+    for (let dx=-RENDER_DISTANCE-1; dx<=RENDER_DISTANCE+1; dx++) for (let dy=-RENDER_DISTANCE-1; dy<=RENDER_DISTANCE+1; dy++){
+      const chunkX = cx + dx, chunkY = cy + dy;
+      const seed = pairHash(chunkX, chunkY);
+      const num = 1 + Math.floor(randRange(seed,0,3));
+      for (let i=0;i<num;i++){
+        const px = chunkX*CHUNK + randRange(seed + i*11, 0, CHUNK);
+        const py = chunkY*CHUNK + randRange(seed + i*17, 0, CHUNK);
+        const r = randRange(seed + i*23, 10, 36);
+        const id = `${chunkX},${chunkY},${i}`;
+        const d = Math.hypot(px - ship.x, py - ship.y);
+        if (d <= scanRange + 800) {
+          const seedName = pairHash(chunkX, i*1000 + chunkY);
+          const name = planetNameFromSeed(seedName);
+          scannedPlanets[id] = { name, d: Math.round(d), x: px, y: py, r: r, time: Date.now(), seed: seedName };
+          // If new, add to planet log as scanned (not discovered)
+          if (!planetLog[id]) planetLog[id] = makePlanetEntry(id, px, py, r, seedName, discoveredPlanets.has(id));
+        }
+      }
+    }
+    refreshScanResults();
+    setTimeout(()=>{ scanActive=false; scanStatusEl.textContent='Ready'; }, 700);
+    saveGameToStorage();
+  }
+
+  document.getElementById('scanBtn').addEventListener('click', ()=>{ if (!audioCtx) initAudio(); doScan(); });
+  document.getElementById('clearScansBtn').addEventListener('click', ()=>{ for(const k in scannedPlanets) delete scannedPlanets[k]; refreshScanResults(); saveGameToStorage(); });
+
+  function refreshScanResults(){
+    scanResultsEl.innerHTML = '';
+    const items = Object.entries(scannedPlanets).sort((a,b)=> a[1].d - b[1].d);
+    if (items.length === 0){ scanResultsEl.innerHTML = '<div style="padding:6px;color:#bdbdbd">No scanned planets yet</div>'; return; }
+    for (const [id, info] of items){
+      const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='space-between'; row.style.padding='6px';
+      const left = document.createElement('div'); left.innerHTML = `<div style="font-weight:600">${info.name}</div><div style="font-size:12px;color:#bdbdbd">${info.d} units</div>`;
+      const right = document.createElement('div'); right.style.display='flex'; right.style.gap='8px'; right.style.alignItems='center';
+      const discovered = discoveredPlanets.has(id);
+      const discoBadge = document.createElement('div'); discoBadge.style.background='rgba(255,255,255,0.06)'; discoBadge.style.padding='4px 8px'; discoBadge.style.borderRadius='6px'; discoBadge.style.fontSize='12px';
+      discoBadge.textContent = discovered ? 'Discovered' : 'Scanned';
+      const goBtn = document.createElement('button'); goBtn.textContent = discovered ? 'View' : 'Claim'; goBtn.style.padding='6px 8px'; goBtn.style.fontSize='12px';
+      goBtn.addEventListener('click', ()=> {
+        if (!discovered && info.d <= 1200) { discoveredPlanets.add(id); discoveredCount = discoveredPlanets.size; credits += 1; saveGameToStorage(); playDiscoveryChime(); notify(`Claimed: ${info.name} (+1 credit)`); planetLog[id].discovered = true; refreshScanResults(); }
+        else if (!discovered) { const dx=info.x - ship.x, dy=info.y - ship.y; ship.x += dx*0.12; ship.y += dy*0.12; notify('Guiding toward scanned planet'); }
+        else { // view in tablet
+          openTablet(); scrollPlanetIntoView(id);
+        }
+      });
+      right.appendChild(discoBadge); right.appendChild(goBtn); row.appendChild(left); row.appendChild(right); scanResultsEl.appendChild(row);
+    }
+  }
+
+  /* Minimap */
+  function drawMinimap(){
+    const w = minimapCanvas.width, h = minimapCanvas.height;
+    minimapCtx.clearRect(0,0,w,h);
+    minimapCtx.fillStyle = 'rgba(0,0,0,0.22)'; minimapCtx.fillRect(0,0,w,h);
+    minimapCtx.save(); minimapCtx.translate(w/2, h/2);
+    const scale = (w/2) / (scanRange || 800);
+    minimapCtx.strokeStyle = 'rgba(255,255,255,0.04)'; minimapCtx.lineWidth = 1;
+    minimapCtx.beginPath(); minimapCtx.arc(0,0,(w/2)*0.4,0,Math.PI*2); minimapCtx.stroke();
+    minimapCtx.beginPath(); minimapCtx.arc(0,0,(w/2)*0.75,0,Math.PI*2); minimapCtx.stroke();
+    for (const [id, info] of Object.entries(scannedPlanets)) {
+      const dx = info.x - ship.x, dy = info.y - ship.y;
+      const rx = dx * scale, ry = dy * scale;
+      if (Math.abs(rx) > w/2 || Math.abs(ry) > h/2) continue;
+      const discovered = discoveredPlanets.has(id);
+      if (discovered) { minimapCtx.fillStyle = 'rgba(124,255,158,0.95)'; minimapCtx.beginPath(); minimapCtx.arc(rx, ry, 4, 0, Math.PI*2); minimapCtx.fill(); }
+      else { const pulse = 1 + Math.sin(Date.now()*0.004 + (id.length)) * 0.4; minimapCtx.strokeStyle = 'rgba(200,230,255,0.9)'; minimapCtx.beginPath(); minimapCtx.arc(rx, ry, 3 * pulse, 0, Math.PI*2); minimapCtx.stroke(); }
+    }
+    minimapCtx.fillStyle = 'rgba(255,255,255,0.9)'; minimapCtx.beginPath(); minimapCtx.moveTo(6,0); minimapCtx.lineTo(-5,4); minimapCtx.lineTo(-2,0); minimapCtx.lineTo(-5,-4); minimapCtx.closePath(); minimapCtx.fill();
+    minimapCtx.restore();
+  }
+
+  /* Upgrades */
+  const UPGRADES = [
+    { id:'engine', title:'Engine MK-I', desc:'Increase max speed (+1.5)', cost:6, apply(){ upgradesState.engine += 1; shipMaxSpeed += 1.5; } },
+    { id:'scanner', title:'Scanner Array', desc:'Increase scan range +300', cost:5, apply(){ upgradesState.scanner += 1; scanRange += 300; scanRangeDisplay.textContent = Math.round(scanRange); } },
+    { id:'efficiency', title:'Thrust Efficiency', desc:'Reduce friction (feel snappier)', cost:4, apply(){ upgradesState.efficiency += 1; } }
+  ];
+  function openUpgrades(){
+    upgradesModal.style.display = 'flex'; upgradesList.innerHTML = '';
+    for (const u of UPGRADES){
+      const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='space-between'; row.style.padding='8px 6px';
+      const left = document.createElement('div'); left.innerHTML = `<div style="font-weight:600">${u.title}</div><div style="color:#bdbdbd">${u.desc}</div>`;
+      const right = document.createElement('div'); right.style.display='flex'; right.style.gap='8px'; right.style.alignItems='center';
+      const cost = document.createElement('div'); cost.style.color='#bdbdbd'; cost.textContent = `${u.cost} credits`;
+      const buy = document.createElement('button'); buy.textContent = 'Buy';
+      buy.addEventListener('click', ()=> {
+        if (credits >= u.cost){ credits -= u.cost; creditsEl.textContent = credits; u.apply(); playDiscoveryChime(); saveGameToStorage(); notify(`${u.title} purchased`); openUpgrades(); }
+        else notify('Not enough credits');
+      });
+      right.appendChild(cost); right.appendChild(buy); row.appendChild(left); row.appendChild(right); upgradesList.appendChild(row);
+    }
+  }
+  upgradesBtn.addEventListener('click', openUpgrades);
+  closeUpgrades?.addEventListener('click', ()=> upgradesModal.style.display='none');
+  upgradesModal?.addEventListener('click', (e)=> { if (e.target === upgradesModal) upgradesModal.style.display='none'; });
+
+  /* Planet log / tablet */
+  function openTablet(){ tabletPanel.style.display = 'block'; renderPlanetList(); }
+  function closeTabletPanel(){ tabletPanel.style.display = 'none'; }
+  tabletBtn.addEventListener('click', openTablet);
+  closeTablet.addEventListener('click', closeTabletPanel);
+  exportLog.addEventListener('click', ()=> {
+    const data = { planetLog, scanned: scannedPlanets, discovered: Array.from(discoveredPlanets) };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'}); const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'android16_planetlog.json'; a.click(); URL.revokeObjectURL(url);
+  });
+  importLog.addEventListener('click', ()=> {
+    const input = document.createElement('input'); input.type='file'; input.accept='application/json';
+    input.onchange = (e)=> {
+      const file = e.target.files[0]; if (!file) return; const reader = new FileReader();
+      reader.onload = () => {
+        try{
+          const parsed = JSON.parse(reader.result);
+          if (parsed.planetLog){ for (const k in parsed.planetLog) planetLog[k] = parsed.planetLog[k]; }
+          if (parsed.scanned) Object.assign(scannedPlanets, parsed.scanned);
+          if (parsed.discovered) parsed.discovered.forEach(id=>discoveredPlanets.add(id));
+          saveGameToStorage(); refreshScanResults(); renderPlanetList(); notify('Imported planet log');
+        }catch(err){ notify('Import failed'); }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  });
+
+  function renderPlanetList(){
+    tabletList.innerHTML = '';
+    const items = Object.entries(planetLog).sort((a,b)=> b[1].time - a[1].time);
+    if (items.length === 0){ tabletList.innerHTML = '<div style="color:#bdbdbd">No planets logged yet — scan or discover planets to record them here.</div>'; return; }
+    for (const [id, info] of items){
+      const card = document.createElement('div'); card.className = 'planetCard';
+      const thumb = document.createElement('div'); thumb.className = 'planetThumb'; thumb.style.background = info.name ? `linear-gradient(135deg, ${colorFromSeed(info.seed)}, rgba(0,0,0,0.2))` : '#222';
+      const infoDiv = document.createElement('div'); infoDiv.className = 'planetInfo';
+      infoDiv.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><div style="font-weight:700">${info.name}</div><div style="font-size:12px;color:#bdbdbd">${info.discovered? 'Discovered':'Scanned'}</div></div>
+        <div class="kv">${info.type} · Radius ${info.r} · Temp ${info.temp}°C</div>
+        <div style="margin-top:8px;color:#dcdcdc">${info.desc}</div>
+        <div style="margin-top:8px;font-size:12px;color:#bdbdbd">Coordinates: ${info.x}, ${info.y}</div>`;
+      const actions = document.createElement('div'); actions.style.display='flex'; actions.style.gap='8px'; actions.style.marginTop='8px';
+      const goto = document.createElement('button'); goto.textContent = 'Goto'; goto.addEventListener('click', ()=>{ ship.x = info.x - 60; ship.y = info.y - 60; closeTabletPanel(); notify(`Warping toward ${info.name}`); });
+      const del = document.createElement('button'); del.textContent = 'Remove'; del.addEventListener('click', ()=>{ if (confirm('Remove from log?')){ delete planetLog[id]; saveGameToStorage(); renderPlanetList(); } });
+      actions.appendChild(goto); actions.appendChild(del); infoDiv.appendChild(actions); card.appendChild(thumb); card.appendChild(infoDiv); tabletList.appendChild(card);
+    }
+  }
+  function scrollPlanetIntoView(id){
+    // ensure tablet is open and scroll to card
+    openTablet(); setTimeout(()=> {
+      const cards = tabletList.querySelectorAll('.planetCard');
+      for (const c of cards){
+        if (c.querySelector('.planetInfo').innerText.includes(id)) { c.scrollIntoView({behavior:'smooth', block:'center'}); break; }
+      }
+    }, 120);
+  }
+
+  /* ---------- Notifications ---------- */
+  function notify(msg){
+    const n = document.createElement('div'); n.style.position='absolute'; n.style.right='12px'; n.style.top='12px'; n.style.background='rgba(10,10,10,0.75)'; n.style.padding='10px 14px'; n.style.borderRadius='8px'; n.style.zIndex=2000;
+    n.innerText = msg; document.body.appendChild(n); setTimeout(()=> n.remove(), 2600);
+  }
+
+  /* ---------- Planet lookup for clicking ---------- */
+  function getPlanetAtWorld(wx, wy){
+    const cx = Math.floor(wx / CHUNK), cy = Math.floor(wy / CHUNK);
+    const seed = pairHash(cx, cy);
+    const numPlanets = 1 + Math.floor(randRange(seed,0,3));
+    for (let i=0;i<numPlanets;i++){
+      const px = cx*CHUNK + randRange(seed + i*11, 0, CHUNK);
+      const py = cy*CHUNK + randRange(seed + i*17, 0, CHUNK);
+      const r = randRange(seed + i*23, 10, 36);
+      const d = Math.hypot(px - wx, py - wy);
+      if (d <= r) return { id:`${cx},${cy},${i}`, x:px, y:py, r, seed: pairHash(cx, i*1000 + cy) };
+    }
+    return null;
+  }
+
+  canvas.addEventListener('click', (e)=> {
+    const rect = canvas.getBoundingClientRect(); const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    const wx = ship.x + (cx - innerWidth/2), wy = ship.y + (cy - innerHeight/2);
+    const p = getPlanetAtWorld(wx, wy);
+    if (p){
+      const name = planetNameFromSeed(p.seed);
+      if (!scannedPlanets[p.id]) { scannedPlanets[p.id] = { name, d: Math.round(Math.hypot(p.x - ship.x, p.y - ship.y)), x:p.x, y:p.y, r:p.r, time:Date.now(), seed:p.seed }; playScanPing(); notify(`Scanned: ${name}`); if (!planetLog[p.id]) planetLog[p.id] = makePlanetEntry(p.id, p.x, p.y, p.r, p.seed, discoveredPlanets.has(p.id)); saveGameToStorage(); refreshScanResults(); }
+      else { notify(`${scannedPlanets[p.id].name} — ${scannedPlanets[p.id].d} units`); openTablet(); renderPlanetList(); }
+    }
+  });
+
+  /* ---------- Ship draw ---------- */
+  function drawShip(thrusting){
+    if (thrusting) { const intensity = Math.min(1, Math.abs(ship.speed)/3 + 0.2); if (Math.random() < (lowPowerMode ? 0.4 : 1.0)) spawnFlameParticles(intensity); }
+    updateAndDrawFlames();
+    const sx = innerWidth/2, sy = innerHeight/2; ctx.save(); ctx.translate(sx, sy); ctx.rotate(ship.angle);
+    const g = ctx.createRadialGradient(-18,0,2,-18,0,40); g.addColorStop(0,'rgba(100,255,120,0.9)'); g.addColorStop(0.2,'rgba(80,220,110,0.25)'); g.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.ellipse(-18,0,18,10,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='lime'; ctx.beginPath(); ctx.moveTo(18,0); ctx.lineTo(-12,9); ctx.lineTo(-6,0); ctx.lineTo(-12,-9); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(10,10,10,0.9)'; ctx.beginPath(); ctx.ellipse(6,0,5,4,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+  }
+
+  /* ---------- Autopilot ---------- */
+  function findAutopilotTarget(){
+    let best=null, bestD=Infinity;
+    for (const [id, info] of Object.entries(scannedPlanets)){ if (discoveredPlanets.has(id)) continue; const d=Math.hypot(info.x - ship.x, info.y - ship.y); if (d < bestD){ best={id, x:info.x, y:info.y}; bestD=d; } }
+    if (!best){
+      const cx = Math.floor(ship.x / CHUNK), cy = Math.floor(ship.y / CHUNK);
+      for (let dx=-RENDER_DISTANCE-1; dx<=RENDER_DISTANCE+1; dx++) for (let dy=-RENDER_DISTANCE-1; dy<=RENDER_DISTANCE+1; dy++){
+        const chunkX = cx+dx, chunkY = cy+dy; const seed = pairHash(chunkX, chunkY); const num = 1 + Math.floor(randRange(seed,0,3));
+        for (let i=0;i<num;i++){ const px = chunkX*CHUNK + randRange(seed + i*11, 0, CHUNK); const py = chunkY*CHUNK + randRange(seed + i*17, 0, CHUNK); const id = `${chunkX},${chunkY},${i}`; if (discoveredPlanets.has(id)) continue; const d=Math.hypot(px - ship.x, py - ship.y); if (d < bestD){ best={id,x:px,y:py}; bestD=d; } }
+      }
+    }
+    return best;
+  }
+
+  function toggleAutopilot(){
+    ship.autopilot = !ship.autopilot;
+    if (ship.autopilot){
+      ship.autopilotTarget = findAutopilotTarget();
+      if (!ship.autopilotTarget){ ship.autopilot=false; notify('No autopilot targets'); return; }
+      autopilotBtn.style.background = 'rgba(124,255,158,0.06)'; notify('Autopilot engaged');
+    } else { ship.autopilotTarget = null; autopilotBtn.style.background = ''; notify('Autopilot disengaged'); }
+  }
+  autopilotBtn.addEventListener('click', toggleAutopilot);
+
+  /* ---------- Main loop ---------- */
+  let last = performance.now(), frameCount=0, prevThrusting=false;
+  function updateHUD(){
+    planetCountEl.textContent = discoveredCount; creditsEl.textContent = credits;
+    shipSpeedEl.textContent = ship.speed.toFixed(1); scanRangeDisplay.textContent = Math.round(scanRange);
+    masterLabel.textContent = Math.round(masterVolume*100) + '%'; musicLabel.textContent = Math.round(musicVolume*100)+'%'; sfxLabel.textContent = Math.round(sfxVolume*100)+'%'; engineLabel.textContent = Math.round(engineVolume*100)+'%';
+    // icon states
+    musicIconBtn.querySelector('svg').style.opacity = musicMuted?0.35:1; sfxIconBtn.querySelector('svg').style.opacity = sfxMuted?0.35:1; engineIconBtn.querySelector('svg').style.opacity = engineMuted?0.35:1;
+    flameToggleEl.checked = !!flameEnabled; lowPowerToggleEl.checked = !!lowPowerMode;
+  }
+
+  function update(delta){
+    const dt = delta / 16.666;
+    let isThrusting = false;
+    if (!ship.autopilot){
+      if (keys['w'] || keys['arrowup'] || touching){ ship.speed += 0.14 * dt; isThrusting = true; }
+      if (keys['s'] || keys['arrowdown']) ship.speed -= 0.12 * dt;
+      if (keys['a'] || keys['arrowleft']) ship.angle -= 0.035 * dt;
+      if (keys['d'] || keys['arrowright']) ship.angle += 0.035 * dt;
+      if (touching){ if (touchX < innerWidth/2) ship.angle -= 0.038 * dt; else ship.angle += 0.038 * dt; ship.speed += 0.12 * dt; }
+    } else {
+      const t = ship.autopilotTarget;
+      if (!t){ ship.autopilot = false; notify('Autopilot target lost'); }
+      else {
+        const dx = t.x - ship.x, dy = t.y - ship.y; const desired = Math.atan2(dy, dx); let diff = desired - ship.angle; while (diff > Math.PI) diff -= Math.PI*2; while (diff < -Math.PI) diff += Math.PI*2;
+        ship.angle += Math.sign(diff) * Math.min(Math.abs(diff), 0.03 * dt);
+        ship.speed += 0.09 * dt; isThrusting = true;
+        if (Math.hypot(dx,dy) < 90){
+          const id = t.id;
+          if (scannedPlanets[id] && !discoveredPlanets.has(id)){
+            discoveredPlanets.add(id); discoveredCount = discoveredPlanets.size; credits += 1; playDiscoveryChime(); notify('Autopilot discovered planet (+1 credit)');
+            if (planetLog[id]) planetLog[id].discovered = true;
+            saveGameToStorage();
+          }
+          ship.autopilotTarget = findAutopilotTarget(); if (!ship.autopilotTarget){ ship.autopilot=false; notify('Autopilot complete'); }
+        }
+      }
+    }
+
+    const friction = 0.987 - (upgradesState.efficiency * 0.002);
+    ship.speed = Math.max(Math.min(ship.speed, shipMaxSpeed), -1.6);
+    ship.speed *= friction;
+    ship.x += Math.cos(ship.angle) * ship.speed * dt;
+    ship.y += Math.sin(ship.angle) * ship.speed * dt;
+
+    if (isThrusting && !prevThrusting) playThrustStart();
+    else if (!isThrusting && prevThrusting) playThrustStop();
+    prevThrusting = isThrusting;
+    updateEngineSound(isThrusting);
+
+    if (scanCooldown > 0){ scanCooldown = Math.max(0, scanCooldown - 1); scanStatusEl.textContent = scanCooldown === 0 ? 'Ready' : `Cooldown ${Math.ceil(scanCooldown/10)}s`; }
+
+    maybeSpawnComet(); updateComets();
+
+    frameCount++; if (frameCount % 300 === 0) saveGameToStorage();
+    updateHUD();
+  }
+
+  function render(){
+    ctx.fillStyle = 'rgb(2,4,8)'; ctx.fillRect(0,0,innerWidth,innerHeight);
+    const cxChunk = Math.floor(ship.x / CHUNK), cyChunk = Math.floor(ship.y / CHUNK);
+    drawNebulas(cxChunk, cyChunk); drawStarLayers(cxChunk, cyChunk); drawComets(); drawPlanetsAndBelts(cxChunk, cyChunk);
+    const thrusting = (!ship.autopilot) && (keys['w'] || keys['arrowup'] || touching);
+    drawShip(thrusting);
+    const g = ctx.createRadialGradient(innerWidth/2, innerHeight/2, Math.max(innerWidth,innerHeight)/4, innerWidth/2, innerHeight/2, Math.max(innerWidth,innerHeight)/1.2);
+    g.addColorStop(0.7, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.45)'); ctx.fillStyle = g; ctx.fillRect(0,0,innerWidth,innerHeight);
+    drawMinimap();
+  }
+
+  function loop(now){
+    const delta = Math.min(40, now - last); last = now; update(delta); render(); requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  /* ---------- UI wiring ---------- */
+  settingsBtn.addEventListener('click', ()=> settingsModal.style.display = 'flex');
+  closeSettings.addEventListener('click', ()=> settingsModal.style.display = 'none');
+  settingsModal.addEventListener('click', (e)=> { if (e.target === settingsModal) settingsModal.style.display = 'none'; });
+
+  masterSlider.addEventListener('input', (e)=> { masterVolume = Number(e.target.value)/100; masterLabel.textContent = Math.round(masterVolume*100) + '%'; if (audioCtx) applyAllVolumes(); saveSettings(); });
+  musicSlider.addEventListener('input', (e)=> { musicVolume = Number(e.target.value)/100; musicLabel.textContent = Math.round(musicVolume*100)+'%'; if (musicGain) musicGain.gain.setTargetAtTime(musicMuted?0:musicVolume, audioCtx?audioCtx.currentTime:0, 0.02); saveSettings(); });
+  sfxSlider.addEventListener('input', (e)=> { sfxVolume = Number(e.target.value)/100; sfxLabel.textContent = Math.round(sfxVolume*100)+'%'; if (sfxGain) sfxGain.gain.setTargetAtTime(sfxMuted?0:sfxVolume, audioCtx?audioCtx.currentTime:0, 0.02); saveSettings(); });
+  engineSlider.addEventListener('input', (e)=> { engineVolume = Number(e.target.value)/100; engineLabel.textContent = Math.round(engineVolume*100)+'%'; if (engineGainNode) engineGainNode.gain.setTargetAtTime(engineMuted?0:engineVolume, audioCtx?audioCtx.currentTime:0, 0.02); saveSettings(); });
+
+  function toggleMusicMuted(){ musicMuted = !musicMuted; if (musicGain) musicGain.gain.setTargetAtTime(musicMuted?0:musicVolume, audioCtx?audioCtx.currentTime:0, 0.02); saveSettings(); updateHUD(); }
+  function toggleSfxMuted(){ sfxMuted = !sfxMuted; if (sfxGain) sfxGain.gain.setTargetAtTime(sfxMuted?0:sfxVolume, audioCtx?audioCtx.currentTime:0, 0.02); saveSettings(); updateHUD(); }
+  function toggleEngineMuted(){ engineMuted = !engineMuted; if (engineGainNode) engineGainNode.gain.setTargetAtTime(engineMuted?0:engineVolume, audioCtx?audioCtx.currentTime:0, 0.02); saveSettings(); updateHUD(); }
+
+  musicIconBtn.addEventListener('click', ()=> { if (!audioCtx) initAudio(); toggleMusicMuted(); });
+  sfxIconBtn.addEventListener('click', ()=> { if (!audioCtx) initAudio(); toggleSfxMuted(); });
+  engineIconBtn.addEventListener('click', ()=> { if (!audioCtx) initAudio(); toggleEngineMuted(); });
+
+  musicMuteBtn.addEventListener('click', ()=> { if (!audioCtx) initAudio(); toggleMusicMuted(); });
+  sfxMuteBtn.addEventListener('click', ()=> { if (!audioCtx) initAudio(); toggleSfxMuted(); });
+  engineMuteBtn.addEventListener('click', ()=> { if (!audioCtx) initAudio(); toggleEngineMuted(); });
+
+  flameToggleEl.addEventListener('change', (e)=> { flameEnabled = !!e.target.checked; saveSettings(); updateHUD(); });
+  lowPowerToggleEl.addEventListener('change', (e)=> { lowPowerMode = !!e.target.checked; STAR_QUALITY_MULT = lowPowerMode ? 0.35 : 1.0; saveSettings(); });
+
+  saveBtn.addEventListener('click', ()=> { saveGameToStorage(); notify('Game saved'); });
+  loadBtn.addEventListener('click', ()=> { loadSavedGame(); loadSettings(); refreshScanResults(); applyAllVolumes(); notify('Game loaded'); updateHUD(); });
+  resetBtn.addEventListener('click', ()=> resetSave());
+
+  /* tooltip behavior (hover & mobile long-press) */
+  let tipTimer = null;
+  function showTooltipFor(el){
+    const text = el.getAttribute('data-tip') || el.title || '';
+    if (!text) return;
+    tooltip.textContent = text; tooltip.style.left = '0px'; tooltip.style.top = '0px'; tooltip.classList.add('show'); tooltip.setAttribute('aria-hidden','false');
+    const rect = el.getBoundingClientRect(); const ttRect = tooltip.getBoundingClientRect();
+    let left = rect.left + rect.width/2 - ttRect.width/2; left = Math.max(8, Math.min(left, window.innerWidth - ttRect.width - 8));
+    let top = rect.top - ttRect.height - 8; if (top < 6) top = rect.bottom + 10;
+    tooltip.style.left = Math.round(left) + 'px'; tooltip.style.top = Math.round(top) + 'px';
+  }
+  function hideTooltip(){ tooltip.classList.remove('show'); tooltip.setAttribute('aria-hidden','true'); }
+  document.querySelectorAll('[data-tip], [title]').forEach(el=>{
+    el.addEventListener('mouseenter', ()=> showTooltipFor(el));
+    el.addEventListener('mouseleave', ()=> hideTooltip());
+    // long press for mobile
+    el.addEventListener('touchstart', ()=> { tipTimer = setTimeout(()=> showTooltipFor(el), 500); }, {passive:true});
+    el.addEventListener('touchend', ()=> { clearTimeout(tipTimer); setTimeout(hideTooltip, 220); }, {passive:true});
+  });
+
+  /* Start audio on first gesture */
+  document.body.addEventListener('pointerdown', ()=> { initAudio(); applyAllVolumes(); }, { once:true });
+
+  /* Load saved data and update UI */
+  loadSettings(); loadSavedGame(); refreshScanResults();
+  masterSlider.value = Math.round(masterVolume*100); masterLabel.textContent = Math.round(masterVolume*100) + '%';
+  musicSlider.value = Math.round(musicVolume*100); musicLabel.textContent = Math.round(musicVolume*100) + '%';
+  sfxSlider.value = Math.round(sfxVolume*100); sfxLabel.textContent = Math.round(sfxVolume*100) + '%';
+  engineSlider.value = Math.round(engineVolume*100); engineLabel.textContent = Math.round(engineVolume*100) + '%';
+  flameToggleEl.checked = !!flameEnabled; lowPowerToggleEl.checked = !!lowPowerMode; STAR_QUALITY_MULT = lowPowerMode?0.35:1.0;
+  updateHUD();
+
+  /* periodic auto-save */
+  setInterval(()=> saveGameToStorage(), 15000);
+
+  /* ensure innerWidth/innerHeight read properly */
+  Object.defineProperty(window, 'innerWidth', { get: ()=> document.documentElement.clientWidth });
+  Object.defineProperty(window, 'innerHeight', { get: ()=> document.documentElement.clientHeight });
+
+}); // end DOMContentLoaded
+</script>
+</body>
+</html>
